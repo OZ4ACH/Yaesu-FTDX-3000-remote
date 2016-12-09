@@ -500,7 +500,7 @@ void loop() {
 
 					Serial1.print(radioread);
 
-					lcd.print("DNR LEVEL");
+					lcd.print("DNR LEVEL ");
 					lcd.print(DNRNR);
 					break;
 			}
