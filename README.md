@@ -12,3 +12,4 @@ Using a 16x2 LCD display with a I2C control board.
 There is 9 pot connected to the analoginput to adjust value direct.
 
 You can control all setting there can be controled from the RS-232.
+
