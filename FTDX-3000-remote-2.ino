@@ -30,7 +30,7 @@ LiquidCrystal_I2C lcd(0x20, 4, 5, 6, 0, 1, 2, 3, 7, NEGATIVE);  // Set the LCD I
 #define ANALOGIND 9
 int16 analognew[ANALOGIND];
 int16 analogold[ANALOGIND];
-#define ANALOGCHANGE 2
+#define ANALOGCHANGE 3
 
 
 // Keyboard setting, IO and variable
@@ -93,6 +93,7 @@ int DNRNR;
 int DVSRX;
 int MONITOR;
 int NBLEVEL;
+int TXBPF;
 
 
 // Scan and Read the keyboard with 3x3 keys
@@ -417,6 +418,7 @@ void loop() {
 
 					lcd.print("CON LEVEL ");
 					lcd.print(CONTOURLEVEL);
+					lcd.print("dB");
 					break;
 				case 3:
 					CONTOURWIDTH = (analognew[analogpin]) /92;
@@ -463,6 +465,7 @@ void loop() {
 
 					lcd.print("VOX TIME ");
 					lcd.print(VOXTIME);
+					lcd.print("ms");
 					break;
 				case 6:
 					VOXANTI = (analognew[analogpin]) /10;
@@ -479,6 +482,39 @@ void loop() {
 					lcd.print(VOXANTI);
 					break;
 				case 7:
+					TXBPF = (analognew[analogpin]) /175;
+					radioread = "EX104";
+					radioread.concat(String(TXBPF));
+					radioread.concat(';');
+
+					Serial1.print(radioread);
+
+					lcd.print("TX BPF ");
+					//lcd.print(TXBPF);
+					switch(TXBPF) {
+						case 0: lcd.print("100-3000"); break;
+						case 1: lcd.print("100-2900"); break;
+						case 2: lcd.print("200-2800"); break;
+						case 3: lcd.print("300-2700"); break;
+						case 4: lcd.print("400-2600"); break;
+						case 5: lcd.print("TTBF 4000"); break;
+					default:
+						lcd.print("UKENDT");
+					}
+					break;
+				case 8:
+					DNRNR = (69+analognew[analogpin]) /69;
+					if (DNRNR < 10) radioread = "RL00"; else radioread = "RL0";
+					radioread.concat(String(DNRNR));
+					radioread.concat(';');
+
+					Serial1.print(radioread);
+
+					lcd.print("DNR LEVEL ");
+					lcd.print(DNRNR);
+					break;
+				// not used
+				case 100:
 					NBLEVEL = (analognew[analogpin]) /10;
 					if (NBLEVEL > 100) NBLEVEL = 100;
 					if (NBLEVEL < 10)  radioread = "EX03300";
@@ -491,17 +527,6 @@ void loop() {
 
 					lcd.print("NB LEVEL ");
 					lcd.print(NBLEVEL);
-					break;
-				case 8:
-					DNRNR = (69+analognew[analogpin]) /69;
-					if (DNRNR < 10) radioread = "RL00"; else radioread = "RL0";
-					radioread.concat(String(DNRNR));
-					radioread.concat(';');
-
-					Serial1.print(radioread);
-
-					lcd.print("DNR LEVEL ");
-					lcd.print(DNRNR);
 					break;
 			}
 			lcd.print("                ");
