@@ -68,6 +68,8 @@ byte keyrelease[KEYCOUNT];
 #define RADIOTXREQ  5
 #define TUNERKEY   6
 #define TUNERSTART 7
+#define TXBYPASS 4
+
 
 long readradio;
 #define READRADIOCOUNT 40
@@ -84,6 +86,7 @@ byte RFSQL;
 byte DNR;
 byte DNF;
 
+
 int VOXLEVEL;
 int VOXANTI;
 int VOXTIME;
@@ -94,6 +97,20 @@ int DVSRX;
 int MONITOR;
 int NBLEVEL;
 int TXBPF;
+
+int TXPOWER;
+int TUNEPOWER;
+bool PAOFF;
+#define MAXTXPOWER 12
+#define MAXTUNEPOWER 0
+
+int32 LASTTUNEFRQ;
+int32 TXFRQ;
+bool NEEDTUNE;
+bool SWITCHANT;
+int BAND;
+int32 MAXFRQDIF;
+int32 FRQDIF;
 
 
 // Scan and Read the keyboard with 3x3 keys
@@ -198,12 +215,16 @@ void setup() {
     pinMode(RADIOTXREQ, OUTPUT);
     pinMode(TUNERKEY, INPUT_PULLUP);
     pinMode(TUNERSTART, OUTPUT);
+    pinMode(TXBYPASS, OUTPUT);
 
     // Tuner default
     digitalWrite(TUNERSTART, HIGH);
 
     // Radio default
     digitalWrite(RADIOTXREQ, HIGH);
+
+    // TX Rele Bypass default
+    digitalWrite(TXBYPASS, LOW);
 
 	// Show start text
 	lcd.begin(16,2);
@@ -229,6 +250,13 @@ void setup() {
 
 	// force a read from radio
 	readradio = READRADIONOW;
+
+	PAOFF = TRUE;
+	NEEDTUNE = TRUE;
+
+	LASTTUNEFRQ = 0;
+	TXFRQ = 0;
+	SWITCHANT = TRUE;
 }
 
 
@@ -243,11 +271,11 @@ void loop() {
 		keyrelease[SENDTORADIO_VOX] = LOW;
 		if (VOX == 0) {
 			Serial1.print("VX1;");
-			lcd.setCursor(0,0);
+			lcd.setCursor(0,1);
 			lcd.print("VOX ON          ");
 			} else {
 			Serial1.print("VX0;");
-			lcd.setCursor(0,0);
+			lcd.setCursor(0,1);
 			lcd.print("VOX OFF         ");
 		}
 		readradio = READRADIONOW;
@@ -257,11 +285,11 @@ void loop() {
 		keyrelease[SENDTORADIO_PROC] = LOW;
 		if (PROC == 0) {
 			Serial1.print("PR01;");
-			lcd.setCursor(0,0);
+			lcd.setCursor(0,1);
 			lcd.print("PROC ON         ");
 			} else {
 			Serial1.print("PR00;");
-			lcd.setCursor(0,0);
+			lcd.setCursor(0,1);
 			lcd.print("PROC OFF        ");
 		}
 		readradio = READRADIONOW;
@@ -272,11 +300,11 @@ void loop() {
 		keyrelease[SENDTORADIO_MICEQ] = LOW;
 		if (MICEQ == 0) {
 			Serial1.print("PR11;");
-			lcd.setCursor(0,0);
+			lcd.setCursor(0,1);
 			lcd.print("MIC EQ ON       ");
 			} else {
 			Serial1.print("PR10;");
-			lcd.setCursor(0,0);
+			lcd.setCursor(0,1);
 			lcd.print("MIC EQ OFF      ");
 		}
 		readradio = READRADIONOW;
@@ -286,11 +314,11 @@ void loop() {
 		keyrelease[SENDTORADIO_PWRPROC] = LOW;
 		if (PWRPROC == 0) {
 			Serial1.print("EX1771;");
-			lcd.setCursor(0,0);
+			lcd.setCursor(0,1);
 			lcd.print("PWR/PROC: PROC  ");
 			} else {
 			Serial1.print("EX1770;");
-			lcd.setCursor(0,0);
+			lcd.setCursor(0,1);
 			lcd.print("PWR/PROC: TX PWR");
 		}
 		readradio = READRADIONOW;
@@ -300,11 +328,11 @@ void loop() {
 		keyrelease[SENDTORADIO_RFSQL] = LOW;
 		if (RFSQL == 0) {
 			Serial1.print("EX0361;");
-			lcd.setCursor(0,0);
+			lcd.setCursor(0,1);
 			lcd.print("RF/SQL: SQL     ");
 			} else {
 			Serial1.print("EX0360;");
-			lcd.setCursor(0,0);
+			lcd.setCursor(0,1);
 			lcd.print("RF/SQL: RF      ");
 		}
 		readradio = READRADIONOW;
@@ -314,11 +342,11 @@ void loop() {
 		keyrelease[SENDTORADIO_DNF] = LOW;
 		if (DNF == 0) {
 			Serial1.print("BC01;");
-			lcd.setCursor(0,0);
+			lcd.setCursor(0,1);
 			lcd.print("DNF ON          ");
 			} else {
 			Serial1.print("BC00;");
-			lcd.setCursor(0,0);
+			lcd.setCursor(0,1);
 			lcd.print("DNF OFF         ");
 		}
 		readradio = READRADIONOW;
@@ -328,11 +356,11 @@ void loop() {
 		keyrelease[SENDTORADIO_DNR] = LOW;
 		if (DNR == 0) {
 			Serial1.print("NR01;");
-			lcd.setCursor(0,0);
+			lcd.setCursor(0,1);
 			lcd.print("DNR ON          ");
 			} else {
 			Serial1.print("NR00;");
-			lcd.setCursor(0,0);
+			lcd.setCursor(0,1);
 			lcd.print("DNR OFF         ");
 		}
 		readradio = READRADIONOW;
@@ -341,17 +369,23 @@ void loop() {
 	// Start tune in tuner
     if (key[TUNEKEY] == HIGH) {
 	    digitalWrite(TUNERSTART, LOW);
-		lcd.setCursor(0,0);
+		lcd.setCursor(0,1);
 		lcd.print("TUNE            ");
 	} else {
 	    digitalWrite(TUNERSTART, HIGH);
     }
+    // Tuner tune
+	if (digitalRead(TUNERKEY) == LOW) {
+		LASTTUNEFRQ = TXFRQ;
+		NEEDTUNE = FALSE;
+		SWITCHANT = FALSE;
+	}
 
 	// Send TX req til radio
     if (	(key[REQTXKEY] == HIGH)
 		|	(digitalRead(TUNERKEY) == LOW)) {
 		digitalWrite(RADIOTXREQ, LOW);
-		lcd.setCursor(0,0);
+		lcd.setCursor(0,1);
 		lcd.print("TX REQ          ");
 	} else {
 		digitalWrite(RADIOTXREQ, HIGH);
@@ -589,6 +623,15 @@ void loop() {
 			DNR = 1;
 		}
 
+
+		Serial1.print("NR0;");
+		radioread = Serial1.readStringUntil(';');
+		if (radioread.equals("NR00")) {
+			DNR = 0;
+			} else {
+			DNR = 1;
+		}
+
 		Serial1.print("EX177;");
 		radioread = Serial1.readStringUntil(';');
 		if (radioread.equals("EX1770")) {
@@ -605,6 +648,103 @@ void loop() {
 			RFSQL = 1;
 		}
 
+		// Read analog value
+		Serial1.print("FA;");
+		radioread = Serial1.readStringUntil(';');
+		radioread = radioread.substring(2,11);
+		TXFRQ = radioread.toInt();
+
+		Serial1.print("PC;");
+		radioread = Serial1.readStringUntil(';');
+		radioread = radioread.substring(2,6);
+		TXPOWER = radioread.toInt();
+
+		Serial1.print("EX178;");
+		radioread = Serial1.readStringUntil(';');
+		radioread = radioread.substring(5,6);
+		TUNEPOWER = radioread.toInt();
+
+
+		// Find band
+		if      (TXFRQ <  1600000) { BAND = 200; MAXFRQDIF =     0; }
+		else if (TXFRQ <  2800000) { BAND = 160; MAXFRQDIF = 50000; }
+		else if (TXFRQ <  4600000) { BAND = 80;  MAXFRQDIF = 50000; }
+		else if (TXFRQ <  6000000) { BAND = 60;  MAXFRQDIF = 25000; }
+		else if (TXFRQ <  8500000) { BAND = 40;  MAXFRQDIF = 20000; }
+		else if (TXFRQ < 12000000) { BAND = 30;  MAXFRQDIF =  2000; }
+		else if (TXFRQ < 16000000) { BAND = 20;  MAXFRQDIF = 12000; }
+		else if (TXFRQ < 20000000) { BAND = 17;  MAXFRQDIF =  2000; }
+		else if (TXFRQ < 23000000) { BAND = 15;  MAXFRQDIF = 10000; }
+		else if (TXFRQ < 26500000) { BAND = 12;  MAXFRQDIF =  2000; }
+		else if (TXFRQ < 30000000) { BAND = 10;  MAXFRQDIF = 30000; }
+		else if (TXFRQ < 53000000) { BAND = 6;   MAXFRQDIF =  5000; }
+		else                       { BAND = 4;   MAXFRQDIF =     0; }
+
+		// Is there need for TUNE
+		FRQDIF = abs(TXFRQ - LASTTUNEFRQ);
+		if (FRQDIF > MAXFRQDIF) {
+			NEEDTUNE = TRUE;
+		} else {
+			NEEDTUNE = FALSE;
+		}
+
+		if (	((TXFRQ < 12000000) && (LASTTUNEFRQ > 12000000))
+			||	((TXFRQ > 12000000) && (LASTTUNEFRQ < 12000000))) {
+			SWITCHANT = TRUE;
+		} else {
+			SWITCHANT = FALSE;
+		}
+
+
+		// Set PA on or off depend of the power setting in the radio
+		lcd.setCursor(0,0);
+		if (TXFRQ > 30000000) {
+			// PA not ok
+			digitalWrite(TXBYPASS, LOW);
+			PAOFF = TRUE;
+			//         0123456789012345
+			lcd.print("PA off NON 6m   ");
+		} else if (TXPOWER > MAXTXPOWER) {
+			// PA not ok
+			digitalWrite(TXBYPASS, LOW);
+			PAOFF = TRUE;
+			//         0123456789012345
+			lcd.print("PA off TXPW ");
+			lcd.print(TXPOWER);
+			lcd.print("W    ");
+		} else if (TUNEPOWER > MAXTUNEPOWER) {
+			// PA not ok
+			digitalWrite(TXBYPASS, LOW);
+			PAOFF = TRUE;
+			//         0123456789012345
+			lcd.print("PA off TUPW ");
+			switch (TUNEPOWER) {
+				case 0: lcd.print(" 10W"); break;
+				case 1: lcd.print(" 20W"); break;
+				case 2: lcd.print(" 50W"); break;
+				case 3: lcd.print("100W"); break;
+				default:
+					lcd.print("???W");
+			}
+		} else if ((NEEDTUNE == TRUE)) {
+			// PA not ok
+			digitalWrite(TXBYPASS, LOW);
+			PAOFF = TRUE;
+			//         0123456789012345
+			if (SWITCHANT == TRUE) {
+				lcd.print("SKIFT ANTENNE    ");
+			} else {
+				lcd.print("PA off NEED TUNE ");
+			}
+		} else {
+			// PA ok
+			digitalWrite(TXBYPASS, HIGH);
+			if (PAOFF == TRUE) {
+				lcd.print("PA on           ");
+				PAOFF = FALSE;
+			}
+		}
+
 /*
 		// Read analog value
 		Serial1.print("EX035;");
@@ -619,6 +759,8 @@ void loop() {
 		DNRNR = radioread.toInt();
 */
 	}
+
+
 
 
 	// Interface to PC using the USB connection
