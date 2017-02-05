@@ -51,13 +51,29 @@ byte keylast[KEYCOUNT];
 byte keypress[KEYCOUNT];
 byte keyrelease[KEYCOUNT];
 
+
+#define KEY10 22
+#define KEY11 23
+#define KEY12 24
+#define KEY13 25
+#define KEY14 26
+#define KEY15 27
+
+#define LED1 28
+#define LED2 29
+#define LED3 30
+#define LED4 31
+#define LED5 32
+#define LED6 33
+
+
 // Key number
-#define SENDTORADIO_VOX 1
-#define SENDTORADIO_PROC 2
-#define SENDTORADIO_MICEQ 3
-#define SENDTORADIO_PWRPROC 4
-#define SENDTORADIO_RFSQL 5
-#define REQTXKEY 6
+#define SENDTORADIO_VOX 10
+#define SENDTORADIO_PROC 11
+#define SENDTORADIO_MICEQ 12
+#define SENDTORADIO_PWRPROC 13
+#define SENDTORADIO_RFSQL 14
+#define REQTXKEY 15
 #define SENDTORADIO_DNR 7
 #define SENDTORADIO_DNF 8
 #define TUNEKEY 9
@@ -107,6 +123,7 @@ bool PAOFF;
 int32 LASTTUNEFRQ;
 int32 TXFRQ;
 bool NEEDTUNE;
+bool TUNEFAIL;
 bool SWITCHANT;
 int BAND;
 int32 MAXFRQDIF;
@@ -188,7 +205,250 @@ void readkey() {
         default:
             keyR = 1;
     }
+
+
+    for(byte C = 10; C<=15; C++){
+        keylast[C] = key[C];
+    }
+    if (digitalRead(KEY10) == LOW) {key[10] = HIGH;} else {key[10] = LOW;}
+    if (digitalRead(KEY11) == LOW) {key[11] = HIGH;} else {key[11] = LOW;}
+    if (digitalRead(KEY12) == LOW) {key[12] = HIGH;} else {key[12] = LOW;}
+    if (digitalRead(KEY13) == LOW) {key[13] = HIGH;} else {key[13] = LOW;}
+    if (digitalRead(KEY14) == LOW) {key[14] = HIGH;} else {key[14] = LOW;}
+    if (digitalRead(KEY15) == LOW) {key[15] = HIGH;} else {key[15] = LOW;}
+	for(byte C = 10; C<=15; C++){
+		if ((keylast[C] == LOW) && (key[C] == HIGH)) {
+			keypress[C] = HIGH;
+		}
+	}
+	for(byte C = 10; C<=15; C++){
+		if ((keylast[C] == HIGH) && (key[C] == LOW)) {
+			keyrelease[C] = HIGH;
+		}
+	}
+
+
 }
+
+
+
+
+#define MAXTUNETIME (uint32)20000
+#define MAXTUNETIMEOUT (uint32)25000
+#define MAXSWRMETER 54
+
+#define TUNE_OK 1
+#define TUNE_TIMEOUT 2
+#define TUNE_TUNING 3
+#define TUNE_TUNED 4
+
+
+
+// TUNE
+void tune(bool testswr) {
+	uint32 starttime;
+	uint16 status;
+	uint16 swr;
+
+	lcd.setCursor(0,2);
+	lcd.print("TUNE BEGIN          ");
+
+	digitalWrite(TXBYPASS, LOW);
+    delay(50);
+
+	LASTTUNEFRQ = TXFRQ;
+	TUNEFAIL = TRUE;
+
+	starttime = millis();
+
+	if (testswr) {
+		// IS there need for tune
+		lcd.setCursor(0,2);
+		lcd.print("TUNE TEST SWR       ");
+
+		digitalWrite(RADIOTXREQ, LOW);
+		delay(400);
+
+		Serial1.print("RM6;");
+		radioread = Serial1.readStringUntil(';');
+		radioread = radioread.substring(3,7);
+		swr = radioread.toInt();
+
+		digitalWrite(RADIOTXREQ, HIGH);
+
+		if (swr < MAXSWRMETER) {
+			lcd.setCursor(0,2);
+			lcd.print("TUNE SWR OK         ");
+			lcd.setCursor(16,2);
+			lcd.print(swr);
+
+			TUNEFAIL = FALSE;
+			return;
+		}
+
+		delay(500);
+	}
+
+	// Start tune
+    digitalWrite(TUNERSTART, LOW);
+
+ 	lcd.setCursor(0,2);
+	lcd.print("TUNE START          ");
+
+    delay(600);
+    digitalWrite(TUNERSTART, HIGH);
+
+	// Wait for tuner to tune
+	status = TUNE_TUNING;
+	while (status == TUNE_TUNING) {
+		if (MAXTUNETIME < (millis() - starttime)) {
+			status = TUNE_TIMEOUT;
+		}
+		if (digitalRead(TUNERKEY) == LOW) {
+			status = TUNE_TUNED;
+		}
+	}
+
+	// Tune TX req if tuber req.
+	if (digitalRead(TUNERKEY) == LOW){
+		digitalWrite(RADIOTXREQ, LOW);
+
+		lcd.setCursor(0,2);
+		lcd.print("TUNE RUNNING        ");
+
+		status = TUNE_TUNING;
+		while (status == TUNE_TUNING) {
+			if (MAXTUNETIME < (millis() - starttime)) {
+				status = TUNE_TIMEOUT;
+			}
+			if (digitalRead(TUNERKEY) == HIGH) {
+				status = TUNE_TUNED;
+			}
+			lcd.setCursor(0,1);
+			lcd.print((millis()-starttime));
+			lcd.print("            ");
+		}
+
+		digitalWrite(RADIOTXREQ, HIGH);
+
+		lcd.setCursor(0,2);
+		lcd.print("TUNE END            ");
+	}
+
+	// timerout wait for tuner to stop TX req then exit
+	if (status == TUNE_TIMEOUT) {
+		lcd.setCursor(0,2);
+		lcd.print("TUNE TIMEOUT        ");
+
+		status = TUNE_TUNING;
+		while (status == TUNE_TUNING) {
+			if (MAXTUNETIMEOUT < (millis() - starttime)) {
+				status = TUNE_TIMEOUT;
+			}
+			if (digitalRead(TUNERKEY) == HIGH) {
+				status = TUNE_TUNED;
+			}
+			lcd.setCursor(0,1);
+			lcd.print((millis()-starttime));
+			lcd.print("            ");
+		}
+		return;
+	}
+
+	// Test SWR
+	lcd.setCursor(0,2);
+	lcd.print("TUNE TEST SWR       ");
+
+	digitalWrite(RADIOTXREQ, LOW);
+	delay(400);
+
+	Serial1.print("RM6;");
+	radioread = Serial1.readStringUntil(';');
+	radioread = radioread.substring(3,7);
+	swr = radioread.toInt();
+
+	digitalWrite(RADIOTXREQ, HIGH);
+
+
+	if (swr >= MAXSWRMETER) {
+		lcd.setCursor(0,2);
+		lcd.print("TUNE SWR FAIL       ");
+		lcd.setCursor(16,2);
+		lcd.print(swr);
+		return;
+	}
+
+	lcd.setCursor(0,2);
+	lcd.print("TUNE SWR OK         ");
+	lcd.setCursor(16,2);
+	lcd.print(swr);
+
+	TUNEFAIL = FALSE;
+}
+
+
+void autotune() {
+
+uint32 startfrq;
+uint32 stopfrq;
+uint32 stepfrq;
+uint32 freq;
+
+	Serial1.print("FA;");
+	radioread = Serial1.readStringUntil(';');
+	radioread = radioread.substring(2,11);
+	TXFRQ = radioread.toInt();
+
+	if 		(TXFRQ <  2800000) { startfrq =  1810000;	stopfrq =  2000000;		stepfrq = 2000;}
+	else if (TXFRQ <  4600000) { startfrq =  3500000;	stopfrq =  3800000;		stepfrq = 4000;}
+	else if (TXFRQ <  6000000) { startfrq =  5250000;	stopfrq =  5450000;		stepfrq = 5000;}
+	else if (TXFRQ <  8500000) { startfrq =  7000000;	stopfrq =  7200000;		stepfrq = 7000;}
+	else if (TXFRQ < 12000000) { startfrq = 10100000;	stopfrq = 10150000;		stepfrq =10000;}
+	else if (TXFRQ < 16000000) { startfrq = 14000000;	stopfrq = 14350000;		stepfrq =14000;}
+	else if (TXFRQ < 20000000) { startfrq = 18068000;	stopfrq = 18168000;		stepfrq =18000;}
+	else if (TXFRQ < 23000000) { startfrq = 21000000;	stopfrq = 21450000;		stepfrq =21000;}
+	else if (TXFRQ < 26500000) { startfrq = 24890000;	stopfrq = 24990000;		stepfrq =25000;}
+	else if (TXFRQ < 30000000) { startfrq = 28000000;	stopfrq = 29700000;		stepfrq =28000;}
+	else if (TXFRQ < 53000000) { startfrq = 50000000;	stopfrq = 52000000;		stepfrq =50000;}
+	else                       { return; }
+
+	for (freq = startfrq; freq <= stopfrq; freq = freq + stepfrq) {
+		lcd.setCursor(0,3);
+		lcd.print("FRQ:                ");
+		lcd.setCursor(5,3);
+		lcd.print(freq);
+		lcd.print(" Hz");
+
+
+		radioread = "FA";
+		if (freq < 10000000) {
+			radioread.concat("0");
+		}
+		radioread.concat(String(freq));
+		radioread.concat(';');
+
+		Serial1.print(radioread);
+
+		//delay(500);
+		tune(false);
+
+		if (TUNEFAIL == TRUE) {
+			exit;
+		}
+	}
+
+	freq = TXFRQ;
+	radioread = "FA";
+	if (freq < 10000000) {
+		radioread.concat("0");
+	}
+	radioread.concat(String(freq));
+	radioread.concat(';');
+
+	Serial1.print(radioread);
+}
+
+
 
 
 // Init keyboard read
@@ -226,8 +486,36 @@ void setup() {
     // TX Rele Bypass default
     digitalWrite(TXBYPASS, LOW);
 
+
+
+    pinMode(KEY10, INPUT_PULLUP);
+    pinMode(KEY11, INPUT_PULLUP);
+    pinMode(KEY12, INPUT_PULLUP);
+    pinMode(KEY13, INPUT_PULLUP);
+    pinMode(KEY14, INPUT_PULLUP);
+    pinMode(KEY15, INPUT_PULLUP);
+
+
+
+	// Set LED6
+    pinMode(LED1, OUTPUT);
+    pinMode(LED2, OUTPUT);
+    pinMode(LED3, OUTPUT);
+    pinMode(LED4, OUTPUT);
+    pinMode(LED5, OUTPUT);
+    pinMode(LED6, OUTPUT);
+    digitalWrite(LED1, HIGH);
+    digitalWrite(LED2, HIGH);
+    digitalWrite(LED3, HIGH);
+    digitalWrite(LED4, HIGH);
+    digitalWrite(LED5, HIGH);
+    digitalWrite(LED6, HIGH);
+
+
+
+
 	// Show start text
-	lcd.begin(16,2);
+	lcd.begin(20,4);
 	lcd.backlight();
 	lcd.clear();
 	lcd.home();
@@ -235,6 +523,10 @@ void setup() {
 	lcd.print("YAESU  FTDX-3000");
 	lcd.setCursor(0,1);
 	lcd.print("REMOTE (C)OZ4ACH");
+	lcd.setCursor(0,2);
+	lcd.print("2017-02-02");
+	lcd.setCursor(0,3);
+	lcd.print("01234567890123456789");
 	delay(1000);
 
 	// Set serial port
@@ -257,6 +549,15 @@ void setup() {
 	LASTTUNEFRQ = 0;
 	TXFRQ = 0;
 	SWITCHANT = TRUE;
+
+
+    digitalWrite(LED1, LOW);
+    digitalWrite(LED2, LOW);
+    digitalWrite(LED3, LOW);
+    digitalWrite(LED4, LOW);
+    digitalWrite(LED5, LOW);
+    digitalWrite(LED6, LOW);
+
 }
 
 
@@ -367,19 +668,16 @@ void loop() {
 	}
 
 	// Start tune in tuner
-    if (key[TUNEKEY] == HIGH) {
-	    digitalWrite(TUNERSTART, LOW);
-		lcd.setCursor(0,1);
-		lcd.print("TUNE            ");
-	} else {
-	    digitalWrite(TUNERSTART, HIGH);
+    if (keyrelease[TUNEKEY] == HIGH) {
+    	keyrelease[TUNEKEY] = LOW;
+    	tune(true);
     }
     // Tuner tune
-	if (digitalRead(TUNERKEY) == LOW) {
-		LASTTUNEFRQ = TXFRQ;
-		NEEDTUNE = FALSE;
-		SWITCHANT = FALSE;
-	}
+//	if (digitalRead(TUNERKEY) == LOW) {
+//		LASTTUNEFRQ = TXFRQ;
+//		NEEDTUNE = FALSE;
+//		SWITCHANT = FALSE;
+//	}
 
 	// Send TX req til radio
     if (	(key[REQTXKEY] == HIGH)
@@ -392,6 +690,16 @@ void loop() {
     }
 
 
+
+	// Start autotune in tuner
+    if (keyrelease[6] == HIGH) {
+    	keyrelease[6] = LOW;
+    	autotune();
+    }
+
+
+
+
 	// Read analog
 	for (int analogpin=0;analogpin<ANALOGIND;analogpin++) {
 		analognew[analogpin] = analogRead(analogpin);
@@ -402,10 +710,10 @@ void loop() {
 			||	(analognew[analogpin] > (analogold[analogpin]+ANALOGCHANGE))) {
 //			lcd.setCursor(0,1);
 //			lcd.print("                ");
-			lcd.setCursor(0,1);
+			lcd.setCursor(0,3);
 
 			switch (analogpin) {
-				case 0:
+				case 6:
 					MONITOR = (analognew[analogpin]) /10;
 					if (MONITOR > 100) MONITOR = 100;
 					if (MONITOR < 10)  radioread = "EX03500";
@@ -419,7 +727,7 @@ void loop() {
 					lcd.print("MONITOR ");
 					lcd.print(MONITOR);
 					break;
-				case 1:
+				case 7:
 					DVSRX = (analognew[analogpin]) /10;
 					if (DVSRX > 100) DVSRX = 100;
 					if (DVSRX < 10)  radioread = "EX01500";
@@ -433,7 +741,7 @@ void loop() {
 					lcd.print("DVS RX ");
 					lcd.print(DVSRX);
 					break;
-				case 2:
+				case 0:
 					CONTOURLEVEL = (analognew[analogpin]) /16;
 					CONTOURLEVEL = CONTOURLEVEL - 40;
 					if (CONTOURLEVEL > 20) CONTOURLEVEL = 20;
@@ -454,7 +762,7 @@ void loop() {
 					lcd.print(CONTOURLEVEL);
 					lcd.print("dB");
 					break;
-				case 3:
+				case 1:
 					CONTOURWIDTH = (analognew[analogpin]) /92;
 					if (CONTOURWIDTH > 11) CONTOURWIDTH = 11;
 					if (CONTOURWIDTH < 1) CONTOURWIDTH = 1;
@@ -469,7 +777,7 @@ void loop() {
 					lcd.print("CON WIDTH ");
 					lcd.print(CONTOURWIDTH);
 					break;
-				case 4:
+				case 3:
 					VOXLEVEL = (analognew[analogpin]) /10;
 					if (VOXLEVEL > 100) VOXLEVEL = 100;
 					if (VOXLEVEL < 10)  radioread = "EX18100";
@@ -483,7 +791,7 @@ void loop() {
 					lcd.print("VOX LEVEL ");
 					lcd.print(VOXLEVEL);
 					break;
-				case 5:
+				case 4:
 					VOXTIME = (analognew[analogpin]) /10;
 					VOXTIME = VOXTIME * 30;
 					VOXTIME = VOXTIME + 30;
@@ -501,7 +809,7 @@ void loop() {
 					lcd.print(VOXTIME);
 					lcd.print("ms");
 					break;
-				case 6:
+				case 5:
 					VOXANTI = (analognew[analogpin]) /10;
 					if (VOXANTI > 100) VOXANTI = 100;
 					if (VOXANTI < 10)  radioread = "EX18300";
@@ -515,7 +823,7 @@ void loop() {
 					lcd.print("VOX ANTI ");
 					lcd.print(VOXANTI);
 					break;
-				case 7:
+				case 2:
 					TXBPF = (analognew[analogpin]) /175;
 					radioread = "EX104";
 					radioread.concat(String(TXBPF));
@@ -667,17 +975,17 @@ void loop() {
 
 		// Find band
 		if      (TXFRQ <  1600000) { BAND = 200; MAXFRQDIF =     0; }
-		else if (TXFRQ <  2800000) { BAND = 160; MAXFRQDIF = 50000; }
-		else if (TXFRQ <  4600000) { BAND = 80;  MAXFRQDIF = 50000; }
-		else if (TXFRQ <  6000000) { BAND = 60;  MAXFRQDIF = 25000; }
-		else if (TXFRQ <  8500000) { BAND = 40;  MAXFRQDIF = 20000; }
-		else if (TXFRQ < 12000000) { BAND = 30;  MAXFRQDIF =  2000; }
-		else if (TXFRQ < 16000000) { BAND = 20;  MAXFRQDIF = 12000; }
-		else if (TXFRQ < 20000000) { BAND = 17;  MAXFRQDIF =  2000; }
-		else if (TXFRQ < 23000000) { BAND = 15;  MAXFRQDIF = 10000; }
-		else if (TXFRQ < 26500000) { BAND = 12;  MAXFRQDIF =  2000; }
-		else if (TXFRQ < 30000000) { BAND = 10;  MAXFRQDIF = 30000; }
-		else if (TXFRQ < 53000000) { BAND = 6;   MAXFRQDIF =  5000; }
+		else if (TXFRQ <  2800000) { BAND = 160; MAXFRQDIF =  2000; }
+		else if (TXFRQ <  4600000) { BAND = 80;  MAXFRQDIF =  4000; }
+		else if (TXFRQ <  6000000) { BAND = 60;  MAXFRQDIF =  5000; }
+		else if (TXFRQ <  8500000) { BAND = 40;  MAXFRQDIF =  7000; }
+		else if (TXFRQ < 12000000) { BAND = 30;  MAXFRQDIF = 10000; }
+		else if (TXFRQ < 16000000) { BAND = 20;  MAXFRQDIF = 14000; }
+		else if (TXFRQ < 20000000) { BAND = 17;  MAXFRQDIF = 18000; }
+		else if (TXFRQ < 23000000) { BAND = 15;  MAXFRQDIF = 21000; }
+		else if (TXFRQ < 26500000) { BAND = 12;  MAXFRQDIF = 25000; }
+		else if (TXFRQ < 30000000) { BAND = 10;  MAXFRQDIF = 28000; }
+		else if (TXFRQ < 53000000) { BAND = 6;   MAXFRQDIF = 10000; }
 		else                       { BAND = 4;   MAXFRQDIF =     0; }
 
 		// Is there need for TUNE
@@ -736,6 +1044,11 @@ void loop() {
 			} else {
 				lcd.print("PA off NEED TUNE ");
 			}
+		} else if ((TUNEFAIL == TRUE)) {
+			// PA not ok
+			digitalWrite(TXBYPASS, LOW);
+			PAOFF = TRUE;
+			lcd.print("PA off NEED TUNE ");
 		} else {
 			// PA ok
 			digitalWrite(TXBYPASS, HIGH);
@@ -759,6 +1072,20 @@ void loop() {
 		DNRNR = radioread.toInt();
 */
 	}
+
+    digitalWrite(LED1, VOX);
+    digitalWrite(LED2, PROC);
+    digitalWrite(LED3, MICEQ);
+    digitalWrite(LED4, PWRPROC);
+    digitalWrite(LED5, RFSQL);
+    if (	(key[REQTXKEY] == HIGH)
+		|	(digitalRead(TUNERKEY) == LOW)) {
+	    digitalWrite(LED6, HIGH);
+	} else {
+    	digitalWrite(LED6, LOW);
+    }
+
+
 
 
 
