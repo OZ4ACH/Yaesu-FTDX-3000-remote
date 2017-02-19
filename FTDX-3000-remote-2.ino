@@ -58,6 +58,7 @@ byte keyrelease[KEYCOUNT];
 #define KEY13 25
 #define KEY14 26
 #define KEY15 27
+#define KEY16 34
 
 #define LED1 28
 #define LED2 29
@@ -77,7 +78,16 @@ byte keyrelease[KEYCOUNT];
 #define SENDTORADIO_DNR 7
 #define SENDTORADIO_DNF 8
 #define TUNEKEY 9
+#define AUTOTUNEBANDKEY 6
+#define FOODSWITCH 16
+#define DVSRECORDKEY 5
 
+// DVS play
+long DVSSETTIME;
+bool DVSPLAY;
+bool DVSOLDPLAY;
+long DVSTIME;
+long DVSNR;
 
 // Radio and Tuner interface
 // Pins
@@ -88,10 +98,12 @@ byte keyrelease[KEYCOUNT];
 
 
 long readradio;
-#define READRADIOCOUNT 40
+long readanalog;
+long readanalognr;
+#define READRADIOCOUNT 100
 #define READRADIONOW 1
 String radioread;
-
+int analogpin;
 
 // Radio value
 byte PWRPROC;
@@ -207,7 +219,7 @@ void readkey() {
     }
 
 
-    for(byte C = 10; C<=15; C++){
+    for(byte C = 10; C<=16; C++){
         keylast[C] = key[C];
     }
     if (digitalRead(KEY10) == LOW) {key[10] = HIGH;} else {key[10] = LOW;}
@@ -216,12 +228,13 @@ void readkey() {
     if (digitalRead(KEY13) == LOW) {key[13] = HIGH;} else {key[13] = LOW;}
     if (digitalRead(KEY14) == LOW) {key[14] = HIGH;} else {key[14] = LOW;}
     if (digitalRead(KEY15) == LOW) {key[15] = HIGH;} else {key[15] = LOW;}
-	for(byte C = 10; C<=15; C++){
+    if (digitalRead(KEY16) == LOW) {key[16] = HIGH;} else {key[16] = LOW;}
+	for(byte C = 10; C<=16; C++){
 		if ((keylast[C] == LOW) && (key[C] == HIGH)) {
 			keypress[C] = HIGH;
 		}
 	}
-	for(byte C = 10; C<=15; C++){
+	for(byte C = 10; C<=16; C++){
 		if ((keylast[C] == HIGH) && (key[C] == LOW)) {
 			keyrelease[C] = HIGH;
 		}
@@ -409,7 +422,7 @@ uint32 freq;
 	else if (TXFRQ < 23000000) { startfrq = 21000000;	stopfrq = 21450000;		stepfrq =21000;}
 	else if (TXFRQ < 26500000) { startfrq = 24890000;	stopfrq = 24990000;		stepfrq =25000;}
 	else if (TXFRQ < 30000000) { startfrq = 28000000;	stopfrq = 29700000;		stepfrq =28000;}
-	else if (TXFRQ < 53000000) { startfrq = 50000000;	stopfrq = 52000000;		stepfrq =50000;}
+//	else if (TXFRQ < 53000000) { startfrq = 50000000;	stopfrq = 52000000;		stepfrq =50000;}
 	else                       { return; }
 
 	for (freq = startfrq; freq <= stopfrq; freq = freq + stepfrq) {
@@ -494,6 +507,7 @@ void setup() {
     pinMode(KEY13, INPUT_PULLUP);
     pinMode(KEY14, INPUT_PULLUP);
     pinMode(KEY15, INPUT_PULLUP);
+    pinMode(KEY16, INPUT_PULLUP);
 
 
 
@@ -532,16 +546,22 @@ void setup() {
 	// Set serial port
 	Serial.begin(38400);
 	Serial1.begin(38400);
+	Serial2.begin(38400);
+	Serial3.begin(38400);
 
 	// Set time out
-	Serial.setTimeout(10);
-	Serial1.setTimeout(10);
+	Serial.setTimeout(100);
+	Serial1.setTimeout(100);
+	Serial2.setTimeout(100);
+	Serial3.setTimeout(100);
 
 	lcd.clear();
 	lcd.home();
 
 	// force a read from radio
 	readradio = READRADIONOW;
+	readanalog = READRADIONOW;
+	readanalognr = 0;
 
 	PAOFF = TRUE;
 	NEEDTUNE = TRUE;
@@ -550,6 +570,9 @@ void setup() {
 	TXFRQ = 0;
 	SWITCHANT = TRUE;
 
+	DVSPLAY = FALSE;
+	DVSOLDPLAY = FALSE;
+	DVSTIME = 0;
 
     digitalWrite(LED1, LOW);
     digitalWrite(LED2, LOW);
@@ -672,16 +695,11 @@ void loop() {
     	keyrelease[TUNEKEY] = LOW;
     	tune(true);
     }
-    // Tuner tune
-//	if (digitalRead(TUNERKEY) == LOW) {
-//		LASTTUNEFRQ = TXFRQ;
-//		NEEDTUNE = FALSE;
-//		SWITCHANT = FALSE;
-//	}
 
 	// Send TX req til radio
     if (	(key[REQTXKEY] == HIGH)
-		|	(digitalRead(TUNERKEY) == LOW)) {
+		|	(digitalRead(TUNERKEY) == LOW))
+	{
 		digitalWrite(RADIOTXREQ, LOW);
 		lcd.setCursor(0,1);
 		lcd.print("TX REQ          ");
@@ -692,196 +710,308 @@ void loop() {
 
 
 	// Start autotune in tuner
-    if (keyrelease[6] == HIGH) {
-    	keyrelease[6] = LOW;
+    if (keyrelease[AUTOTUNEBANDKEY] == HIGH) {
+    	keyrelease[AUTOTUNEBANDKEY] = LOW;
     	autotune();
     }
 
 
+	// Start tune in tuner
+    if (keypress[FOODSWITCH] == HIGH) {
+    	keypress[FOODSWITCH] = LOW;
 
+		Serial1.print("MX1;");
+		lcd.setCursor(0,1);
+		lcd.print("FOOD ON ");
 
-	// Read analog
-	for (int analogpin=0;analogpin<ANALOGIND;analogpin++) {
-		analognew[analogpin] = analogRead(analogpin);
-	}
+		delay(250);
 
-	for (int analogpin=0;analogpin<ANALOGIND;analogpin++) {
-		if (	(analognew[analogpin] < (analogold[analogpin]-ANALOGCHANGE))
-			||	(analognew[analogpin] > (analogold[analogpin]+ANALOGCHANGE))) {
-//			lcd.setCursor(0,1);
-//			lcd.print("                ");
-			lcd.setCursor(0,3);
-
-			switch (analogpin) {
-				case 6:
-					MONITOR = (analognew[analogpin]) /10;
-					if (MONITOR > 100) MONITOR = 100;
-					if (MONITOR < 10)  radioread = "EX03500";
-					else if (MONITOR < 100) radioread = "EX0350";
-					else radioread = "EX035";
-					radioread.concat(String(MONITOR));
-					radioread.concat(';');
-
-					Serial1.print(radioread);
-
-					lcd.print("MONITOR ");
-					lcd.print(MONITOR);
-					break;
-				case 7:
-					DVSRX = (analognew[analogpin]) /10;
-					if (DVSRX > 100) DVSRX = 100;
-					if (DVSRX < 10)  radioread = "EX01500";
-					else if (DVSRX < 100) radioread = "EX0150";
-					else radioread = "EX015";
-					radioread.concat(String(DVSRX));
-					radioread.concat(';');
-
-					Serial1.print(radioread);
-
-					lcd.print("DVS RX ");
-					lcd.print(DVSRX);
-					break;
-				case 0:
-					CONTOURLEVEL = (analognew[analogpin]) /16;
-					CONTOURLEVEL = CONTOURLEVEL - 40;
-					if (CONTOURLEVEL > 20) CONTOURLEVEL = 20;
-					if (CONTOURLEVEL < -40) CONTOURLEVEL = -40;
-
-					if (CONTOURLEVEL < 0) radioread = "EX108-";
-					else if (CONTOURLEVEL > 0) radioread = "EX108+";
-					else 	radioread = "EX108+";
-
-					if ((CONTOURLEVEL > -10) && (CONTOURLEVEL < 10))  radioread.concat("0");
-
-					radioread.concat(String(abs(CONTOURLEVEL)));
-					radioread.concat(';');
-
-					Serial1.print(radioread);
-
-					lcd.print("CON LEVEL ");
-					lcd.print(CONTOURLEVEL);
-					lcd.print("dB");
-					break;
-				case 1:
-					CONTOURWIDTH = (analognew[analogpin]) /92;
-					if (CONTOURWIDTH > 11) CONTOURWIDTH = 11;
-					if (CONTOURWIDTH < 1) CONTOURWIDTH = 1;
-
-					if (CONTOURWIDTH < 10)  radioread = "EX1090";
-					else radioread = "EX109";
-					radioread.concat(String(CONTOURWIDTH));
-					radioread.concat(';');
-
-					Serial1.print(radioread);
-
-					lcd.print("CON WIDTH ");
-					lcd.print(CONTOURWIDTH);
-					break;
-				case 3:
-					VOXLEVEL = (analognew[analogpin]) /10;
-					if (VOXLEVEL > 100) VOXLEVEL = 100;
-					if (VOXLEVEL < 10)  radioread = "EX18100";
-					else if (VOXLEVEL < 100) radioread = "EX1810";
-					else radioread = "EX181";
-					radioread.concat(String(VOXLEVEL));
-					radioread.concat(';');
-
-					Serial1.print(radioread);
-
-					lcd.print("VOX LEVEL ");
-					lcd.print(VOXLEVEL);
-					break;
-				case 4:
-					VOXTIME = (analognew[analogpin]) /10;
-					VOXTIME = VOXTIME * 30;
-					VOXTIME = VOXTIME + 30;
-					if (VOXTIME > 3000) VOXTIME = 3000;
-					if (VOXTIME < 10)  radioread = "EX182000";
-					else if (VOXTIME < 100) radioread = "EX18200";
-					else if (VOXTIME < 1000) radioread = "EX1820";
-					else radioread = "EX182";
-					radioread.concat(String(VOXTIME));
-					radioread.concat(';');
-
-					Serial1.print(radioread);
-
-					lcd.print("VOX TIME ");
-					lcd.print(VOXTIME);
-					lcd.print("ms");
-					break;
-				case 5:
-					VOXANTI = (analognew[analogpin]) /10;
-					if (VOXANTI > 100) VOXANTI = 100;
-					if (VOXANTI < 10)  radioread = "EX18300";
-					else if (VOXANTI < 100) radioread = "EX1830";
-					else radioread = "EX183";
-					radioread.concat(String(VOXANTI));
-					radioread.concat(';');
-
-					Serial1.print(radioread);
-
-					lcd.print("VOX ANTI ");
-					lcd.print(VOXANTI);
-					break;
-				case 2:
-					TXBPF = (analognew[analogpin]) /175;
-					radioread = "EX104";
-					radioread.concat(String(TXBPF));
-					radioread.concat(';');
-
-					Serial1.print(radioread);
-
-					lcd.print("TX BPF ");
-					//lcd.print(TXBPF);
-					switch(TXBPF) {
-						case 0: lcd.print("100-3000"); break;
-						case 1: lcd.print("100-2900"); break;
-						case 2: lcd.print("200-2800"); break;
-						case 3: lcd.print("300-2700"); break;
-						case 4: lcd.print("400-2600"); break;
-						case 5: lcd.print("TTBF 4000"); break;
-					default:
-						lcd.print("UKENDT");
-					}
-					break;
-				case 8:
-					DNRNR = (69+analognew[analogpin]) /69;
-					if (DNRNR < 10) radioread = "RL00"; else radioread = "RL0";
-					radioread.concat(String(DNRNR));
-					radioread.concat(';');
-
-					Serial1.print(radioread);
-
-					lcd.print("DNR LEVEL ");
-					lcd.print(DNRNR);
-					break;
-				// not used
-				case 100:
-					NBLEVEL = (analognew[analogpin]) /10;
-					if (NBLEVEL > 100) NBLEVEL = 100;
-					if (NBLEVEL < 10)  radioread = "EX03300";
-					else if (NBLEVEL < 100) radioread = "EX0330";
-					else radioread = "EX033";
-					radioread.concat(String(NBLEVEL));
-					radioread.concat(';');
-
-					Serial1.print(radioread);
-
-					lcd.print("NB LEVEL ");
-					lcd.print(NBLEVEL);
-					break;
+	    if (digitalRead(KEY16) == HIGH)
+	    {
+			if (DVSPLAY == FALSE) {
+				DVSPLAY = TRUE;
+				lcd.print(" PLAY ON ");
 			}
-			lcd.print("                ");
-//			lcd.setCursor(12,1);
-//			lcd.print(analognew[analogpin]);
-			readradio = READRADIONOW;
+		} else {
+			DVSPLAY = FALSE;
+			lcd.print(" PLAY OFF ");
+		}
+    }
+
+    if (keyrelease[FOODSWITCH] == HIGH) {
+    	keyrelease[FOODSWITCH] = LOW;
+		Serial1.print("MX0;");
+		lcd.setCursor(0,1);
+		lcd.print("FOOD OFF ");
+    }
+
+    if (keyrelease[DVSRECORDKEY] == HIGH) {
+    	keyrelease[DVSRECORDKEY] = LOW;
+				radioread = "LM0";
+				radioread.concat(String(DVSNR));
+				radioread.concat(';');
+				Serial1.print(radioread);
+				lcd.setCursor(0,2);
+				lcd.print(radioread);
+				lcd.print("FOOD REC        ");
+				delay(50);
+    }
+
+
+	if (DVSPLAY == TRUE)
+	{
+		Serial1.print("RI4;");
+		radioread = Serial1.readStringUntil(';');
+		if (radioread.equals("RI40"))
+		{
+			if ((DVSTIME + DVSSETTIME) < millis())
+			{
+				radioread = "PB0";
+				radioread.concat(String(DVSNR));
+				radioread.concat(';');
+				Serial1.print(radioread);
+				lcd.setCursor(0,2);
+				lcd.print(radioread);
+				lcd.print("FOOD TX PLAY        ");
+				delay(50);
+			}
+
+			DVSOLDPLAY = TRUE;
+			if ( DVSSETTIME < 40) {
+				DVSPLAY = FALSE;
+				DVSTIME = 0;
+				DVSOLDPLAY = FALSE;
+				lcd.setCursor(0,2);
+				lcd.print("FOOD TX PLAY STOP 1");
+			}
+
+		} else {
+			DVSTIME = millis();
+		}
+	} else {
+		if (DVSOLDPLAY == TRUE)
+		{
+			DVSOLDPLAY = FALSE;
+			lcd.setCursor(0,2);
+			lcd.print("FOOD TX PLAY STOP   ");
+			Serial1.print("PB00;");
+			DVSTIME = 0;
 		}
 	}
 
-	for (int analogpin=0;analogpin<ANALOGIND;analogpin++) {
-		analogold[analogpin] = analognew[analogpin];
-	}
 
+	// Read radio value
+	readanalog = 1;
+	readanalog--;
+	if (readanalog == 0) {
+		readanalog = READRADIOCOUNT;
+
+		readanalognr++;
+		if (readanalognr >= ANALOGIND) {
+			readanalognr = 0;
+		}
+		analogpin = readanalognr;
+
+		// Read analog
+//		for (int analogpin=0;analogpin<ANALOGIND;analogpin++) {
+//			analognew[analogpin] = analogRead(analogpin);
+//		}
+		analognew[readanalognr] = analogRead(readanalognr);
+
+//		for (int analogpin=0;analogpin<ANALOGIND;analogpin++) {
+			if (	(analognew[analogpin] < (analogold[analogpin]-ANALOGCHANGE))
+				||	(analognew[analogpin] > (analogold[analogpin]+ANALOGCHANGE))) {
+	//			lcd.setCursor(0,1);
+	//			lcd.print("                ");
+				lcd.setCursor(0,3);
+
+				switch (analogpin) {
+					case 6:
+						MONITOR = (analognew[analogpin]) /10;
+						if (MONITOR > 100) MONITOR = 100;
+						if (MONITOR < 10)  radioread = "EX03500";
+						else if (MONITOR < 100) radioread = "EX0350";
+						else radioread = "EX035";
+						radioread.concat(String(MONITOR));
+						radioread.concat(';');
+
+						Serial1.print(radioread);
+
+						lcd.print("MONITOR ");
+						lcd.print(MONITOR);
+						break;
+					case 7:
+						DVSRX = (analognew[analogpin]) /10;
+						if (DVSRX > 100) DVSRX = 100;
+						if (DVSRX < 10)  radioread = "EX01500";
+						else if (DVSRX < 100) radioread = "EX0150";
+						else radioread = "EX015";
+						radioread.concat(String(DVSRX));
+						radioread.concat(';');
+
+						Serial1.print(radioread);
+
+						lcd.print("DVS RX ");
+						lcd.print(DVSRX);
+						break;
+					case 3:
+						VOXLEVEL = (analognew[analogpin]) /10;
+						if (VOXLEVEL > 100) VOXLEVEL = 100;
+						if (VOXLEVEL < 10)  radioread = "EX18100";
+						else if (VOXLEVEL < 100) radioread = "EX1810";
+						else radioread = "EX181";
+						radioread.concat(String(VOXLEVEL));
+						radioread.concat(';');
+
+						Serial1.print(radioread);
+
+						lcd.print("VOX LEVEL ");
+						lcd.print(VOXLEVEL);
+						break;
+					case 4:
+						VOXTIME = (analognew[analogpin]) /10;
+						VOXTIME = VOXTIME * 30;
+						VOXTIME = VOXTIME + 30;
+						if (VOXTIME > 3000) VOXTIME = 3000;
+						if (VOXTIME < 10)  radioread = "EX182000";
+						else if (VOXTIME < 100) radioread = "EX18200";
+						else if (VOXTIME < 1000) radioread = "EX1820";
+						else radioread = "EX182";
+						radioread.concat(String(VOXTIME));
+						radioread.concat(';');
+
+						Serial1.print(radioread);
+
+						lcd.print("VOX TIME ");
+						lcd.print(VOXTIME);
+						lcd.print("ms");
+						break;
+					case 5:
+						VOXANTI = (analognew[analogpin]) /10;
+						if (VOXANTI > 100) VOXANTI = 100;
+						if (VOXANTI < 10)  radioread = "EX18300";
+						else if (VOXANTI < 100) radioread = "EX1830";
+						else radioread = "EX183";
+						radioread.concat(String(VOXANTI));
+						radioread.concat(';');
+
+						Serial1.print(radioread);
+
+						lcd.print("VOX ANTI ");
+						lcd.print(VOXANTI);
+						break;
+					case 2:
+						TXBPF = (analognew[analogpin]) /175;
+						radioread = "EX104";
+						radioread.concat(String(TXBPF));
+						radioread.concat(';');
+
+						Serial1.print(radioread);
+
+						lcd.print("TX BPF ");
+						//lcd.print(TXBPF);
+						switch(TXBPF) {
+							case 0: lcd.print("100-3000"); break;
+							case 1: lcd.print("100-2900"); break;
+							case 2: lcd.print("200-2800"); break;
+							case 3: lcd.print("300-2700"); break;
+							case 4: lcd.print("400-2600"); break;
+							case 5: lcd.print("TTBF 4000"); break;
+						default:
+							lcd.print("UKENDT");
+						}
+						break;
+					case 8:
+						DNRNR = (69+analognew[analogpin]) /69;
+						if (DNRNR < 10) radioread = "RL00"; else radioread = "RL0";
+						radioread.concat(String(DNRNR));
+						radioread.concat(';');
+
+						Serial1.print(radioread);
+
+						lcd.print("DNR LEVEL ");
+						lcd.print(DNRNR);
+						break;
+					case 0:
+						DVSSETTIME = (analognew[analogpin])*10 ;
+						if ( DVSSETTIME < 40) {
+							lcd.print("DVS DELAY TIME ");
+							lcd.print("OFF");
+						} else {
+							lcd.print("DVS DELAY TIME ");
+							lcd.print(DVSSETTIME);
+						}
+
+						break;
+					case 1:
+						DVSNR = (200+analognew[analogpin])/200;
+						if (DVSNR > 5) DVSNR = 5;
+						lcd.print("DVS NR ");
+						lcd.print(DVSNR);
+						break;
+					// not used
+					case 100:
+						NBLEVEL = (analognew[analogpin]) /10;
+						if (NBLEVEL > 100) NBLEVEL = 100;
+						if (NBLEVEL < 10)  radioread = "EX03300";
+						else if (NBLEVEL < 100) radioread = "EX0330";
+						else radioread = "EX033";
+						radioread.concat(String(NBLEVEL));
+						radioread.concat(';');
+
+						Serial1.print(radioread);
+
+						lcd.print("NB LEVEL ");
+						lcd.print(NBLEVEL);
+						break;
+					case 101:
+						CONTOURLEVEL = (analognew[analogpin]) /16;
+						CONTOURLEVEL = CONTOURLEVEL - 40;
+						if (CONTOURLEVEL > 20) CONTOURLEVEL = 20;
+						if (CONTOURLEVEL < -40) CONTOURLEVEL = -40;
+
+						if (CONTOURLEVEL < 0) radioread = "EX108-";
+						else if (CONTOURLEVEL > 0) radioread = "EX108+";
+						else 	radioread = "EX108+";
+
+						if ((CONTOURLEVEL > -10) && (CONTOURLEVEL < 10))  radioread.concat("0");
+
+						radioread.concat(String(abs(CONTOURLEVEL)));
+						radioread.concat(';');
+
+						Serial1.print(radioread);
+
+						lcd.print("CON LEVEL ");
+						lcd.print(CONTOURLEVEL);
+						lcd.print("dB");
+						break;
+					case 102:
+						CONTOURWIDTH = (analognew[analogpin]) /92;
+						if (CONTOURWIDTH > 11) CONTOURWIDTH = 11;
+						if (CONTOURWIDTH < 1) CONTOURWIDTH = 1;
+
+						if (CONTOURWIDTH < 10)  radioread = "EX1090";
+						else radioread = "EX109";
+						radioread.concat(String(CONTOURWIDTH));
+						radioread.concat(';');
+
+						Serial1.print(radioread);
+
+						lcd.print("CON WIDTH ");
+						lcd.print(CONTOURWIDTH);
+						break;
+				}
+				lcd.print("                ");
+	//			lcd.setCursor(12,1);
+	//			lcd.print(analognew[analogpin]);
+				readradio = READRADIONOW;
+			}
+//		}
+
+//		for (int analogpin=0;analogpin<ANALOGIND;analogpin++) {
+			analogold[analogpin] = analognew[analogpin];
+//		}
+	}
 
 
 
@@ -1057,20 +1187,6 @@ void loop() {
 				PAOFF = FALSE;
 			}
 		}
-
-/*
-		// Read analog value
-		Serial1.print("EX035;");
-		radioread = Serial1.readStringUntil(';');
-		radioread = radioread.substring(5,6);
-		MONITOR = radioread.toInt();
-
-
-		Serial1.print("RL0;");
-		radioread = Serial1.readStringUntil(';');
-		radioread = radioread.substring(3,5);
-		DNRNR = radioread.toInt();
-*/
 	}
 
     digitalWrite(LED1, VOX);
@@ -1088,17 +1204,57 @@ void loop() {
 
 
 
-
-
-	// Interface to PC using the USB connection
-	radioread = Serial.readStringUntil(CR);
-
-	// Filter MD = mode from the PC command
-	if (!radioread.substring(0,2).equals("MD")) {
-		Serial1.print(radioread);
+	if (Serial.available() >= 3) {
+		radioread = Serial.readStringUntil(CR);
+		// Filter MD = mode from the PC command
+		if (!radioread.substring(0,2).equals("MD")) {
+			Serial1.print(radioread);
+			radioread = Serial1.readStringUntil(CR);
+			Serial.print(radioread);
+		}
 	}
 
-	radioread = Serial1.readStringUntil(CR);
-	Serial.print(radioread);
+	if (Serial2.available() >= 3) {
+		radioread = Serial2.readStringUntil(CR);
+		Serial1.print(radioread);
+		radioread = Serial1.readStringUntil(CR);
+		Serial2.print(radioread);
+	}
+
+	if (Serial3.available() >= 3) {
+		radioread = Serial3.readStringUntil(CR);
+		Serial1.print(radioread);
+		radioread = Serial1.readStringUntil(CR);
+		Serial3.print(radioread);
+	}
+
+
+//	// Interface to PC using the USB connection
+//	radioread = Serial.readStringUntil(CR);
+//	// Filter MD = mode from the PC command
+//	if (!radioread.substring(0,2).equals("MD")) {
+//		Serial1.print(radioread);
+//	}
+//
+//	// Interface to PC using the USB connection
+//	radioread = Serial2.readStringUntil(CR);
+//	// Filter MD = mode from the PC command
+//	if (!radioread.substring(0,2).equals("MD")) {
+//		Serial1.print(radioread);
+//	}
+//
+//	// Interface to PC using the USB connection
+//	radioread = Serial3.readStringUntil(CR);
+//	// Filter MD = mode from the PC command
+//	if (!radioread.substring(0,2).equals("MD")) {
+//		Serial1.print(radioread);
+//	}
+//
+//
+//// From radio
+//	radioread = Serial1.readStringUntil(CR);
+//	Serial.print(radioread);
+//	Serial2.print(radioread);
+//	Serial3.print(radioread);
 
 }
