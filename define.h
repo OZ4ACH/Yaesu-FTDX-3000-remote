@@ -1,5 +1,12 @@
-/* Version */
+/************************************************************************************************
 
+By OZ4ACH Kim Moltved 2016
+https://github.com/OZ4ACH
+
+************************************************************************************************/
+
+#ifndef define_h
+#define define_h
 
 #define TRUE true
 #define FALSE false
@@ -23,3 +30,4 @@ typedef unsigned long uint32;
 #define CR 0x0D
 #define LF 0x0A
 
+#endif
