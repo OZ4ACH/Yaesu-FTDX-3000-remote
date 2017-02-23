@@ -39,7 +39,25 @@ key_t keys[KEY_TOTAL_COUNT];
 //word key_col;
 
 
+
+
 // Init keyboard read
+void keyreset() {
+	for (word c = 0; c < KEY_TOTAL_COUNT; c++) {
+        keys[c].key = LOW;
+        keys[c].last = LOW;
+        keys[c].press = LOW;
+        keys[c].release = LOW;
+        keys[c].last_press = LOW;
+        keys[c].last_release = LOW;
+
+        keys[c].pressed = 0;
+        keys[c].last_pressed = 0;
+        keys[c].released = 0;
+        keys[c].last_released = 0;
+	}
+}
+
 void readkey_init() {
 
 	// Key pad
@@ -56,19 +74,7 @@ void readkey_init() {
 	}
 
 	//
-	for (word c = 0; c < KEY_TOTAL_COUNT; c++) {
-        keys[c].key = LOW;
-        keys[c].last = LOW;
-        keys[c].press = LOW;
-        keys[c].release = LOW;
-        keys[c].last_press = LOW;
-        keys[c].last_release = LOW;
-
-        keys[c].pressed = 0;
-        keys[c].last_pressed = 0;
-        keys[c].released = 0;
-        keys[c].last_released = 0;
-	}
+	keyreset();
 }
 
 
@@ -160,3 +166,4 @@ uint32 keypressed_last(word keynr) {
 uint32 keyreleased_last(word keynr) {
 	return keys[keynr-1].last_released;
 }
+

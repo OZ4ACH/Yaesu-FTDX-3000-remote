@@ -20,6 +20,8 @@ const word KEYS_ADR[] = {22,23,24,25,26,27,34};
 
 // Analog
 #define ANALOGIND 9
+#define ANALOGCHANGE 2
+#define ANALOGTRIG 3
 
 // LED pins
 const word LED_ADR[] = {28,29,30,31,32,33};
@@ -30,9 +32,31 @@ LiquidCrystal_I2C lcd(0x20, 4, 5, 6, 0, 1, 2, 3, 7, NEGATIVE);  // Set the LCD I
 
 
 // Menu
-#define MAIN_TIMEOUT 3000
+#define MAIN_TIMEOUT 5000
 
 
+
+#define KEY_MENU_UP 1
+#define KEY_MENU_DOWN 4
+#define KEY_VALUE_UP 2
+#define KEY_VALUE_DOWN 5
+#define KEY_ESC 3
+#define KEY_ENTER 6
+
+#define KEY_DNR 7
+#define KEY_DNF 8
+#define KEY_TUNE 9
+
+#define KEY_10 10
+#define KEY_11 11
+#define KEY_12 12
+#define KEY_13 13
+#define KEY_14 14
+#define KEY_15 15
+
+
+
+#define MENU_COUNT 30
 
 
 
