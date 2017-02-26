@@ -50,8 +50,8 @@ LiquidCrystal_I2C lcd(0x20, 4, 5, 6, 0, 1, 2, 3, 7, NEGATIVE);  // Set the LCD I
 #define KEY_VOX 10
 #define KEY_PROC 11
 #define KEY_12 12
-#define KEY_13 13
-#define KEY_14 14
+#define KEY_DNR2 13
+#define KEY_DNF2 14
 #define KEY_15 15
 
 #define KEY_FOODSWITCH 16

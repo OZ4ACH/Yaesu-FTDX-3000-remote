@@ -36,7 +36,8 @@ uint32 main_time;
 #define STATE_MENU 100
 #define STATE_TUNE 110
 #define STATE_AUTOTUNE 111
-
+#define STATE_PLAYDVS 112
+#define STATE_RECORDDVS 114
 
 int16 menu_point;
 
@@ -50,12 +51,19 @@ byte RFSQL;
 byte DNR;
 byte DNF;
 
+long DVSSETTIME;
+bool DVSPLAY;
+bool DVSOLDPLAY;
+long DVSTIME;
+long DVSNR;
+
+
 #define RADIOTXREQ  5
 #define TUNERKEY   6
 #define TUNERSTART 7
 #define TXBYPASS 4
 
-
+bool txreq;
 
 int32 LASTTUNEFRQ;
 bool TUNEFAIL;
@@ -361,7 +369,21 @@ void setup() {
 	Serial2.setTimeout(100);
 	Serial3.setTimeout(100);
 
+	txreq = FALSE;
+
 	readradionr = 0;
+
+	DVSNR = 1;
+
+	DVSPLAY = FALSE;
+	DVSOLDPLAY = FALSE;
+	DVSTIME = 0;
+	DVSSETTIME = 3000;
+
+
+
+	readkey();
+	keyloopreset();
 }
 
 
@@ -392,9 +414,19 @@ void loop() {
 	} else
 	if (keypress(KEY_12)) {
 	} else
-	if (keypress(KEY_13)) {
+	if (keypress(KEY_DNR2)) {
+		if (DNR == 0) {
+			Serial1.print("NR01;");
+		} else {
+			Serial1.print("NR00;");
+		}
 	} else
-	if (keypress(KEY_14)) {
+	if (keypress(KEY_DNF2)) {
+		if (DNF == 0) {
+			Serial1.print("BC01;");
+		} else {
+			Serial1.print("BC00;");
+		}
 	} else
 	if (keypress(KEY_15)) {
 	} else
@@ -420,17 +452,25 @@ void loop() {
 
 	if (keypress(KEY_FOODSWITCH)) {
 		Serial1.print("MX1;");
+		DVSPLAY = FALSE;
 	} else
 	if (keyrelease(KEY_FOODSWITCH)) {
+		if (keypressed_last(KEY_FOODSWITCH) < 250) {
+			DVSPLAY = TRUE;
+		led_set(6,ON);
+
+		}
 		Serial1.print("MX0;");
 	} else
 
 	if (main_state < STATE_LIMIT) {
-		if (keypress(KEY_ENTER)) {
-			digitalWrite(RADIOTXREQ, LOW);
-		} else
 		if (keyrelease(KEY_ENTER)) {
-			digitalWrite(RADIOTXREQ, HIGH);
+			//digitalWrite(RADIOTXREQ, HIGH);
+			txreq = FALSE;
+		} else
+		if (keypress(KEY_ENTER)) {
+			//digitalWrite(RADIOTXREQ, LOW);
+			txreq = TRUE;
 		} else
 		if (keypress(KEY_TUNE)) {
 			main_state = STATE_TUNE;
@@ -443,12 +483,74 @@ void loop() {
 		if (keypress(KEY_ESC)) {
 			main_state = STATE_INFO;
 			main_time = millis();
+			DVSPLAY = FALSE;
+		} else
+		if (keypress(KEY_VALUE_UP)) {
+			main_time = millis();
+			DVSNR--;
+		} else
+		if (keypress(KEY_VALUE_DOWN)) {
+			main_time = millis();
+			DVSNR++;
 		}
+		if (DVSNR < 1) DVSNR = 1;
+		if (DVSNR > 5) DVSNR = 5;
+
 		if (keypress(KEY_MENU_UP) || keypress(KEY_MENU_DOWN)) {
 			main_state = STATE_MENU;
 			main_time = millis();
 		}
 	}
+
+
+
+	// Tuning tx req to radio
+	if (	(digitalRead(TUNERKEY) == LOW)
+		||	(txreq == TRUE)) {
+		digitalWrite(RADIOTXREQ, LOW);
+	} else {
+		digitalWrite(RADIOTXREQ, HIGH);
+
+	}
+
+	// Short press with food switch start PLAY DVS
+	if (DVSPLAY == TRUE)
+	{
+		Serial1.print("RI4;");
+		radioread = Serial1.readStringUntil(';');
+		if (radioread.equals("RI40"))
+		{
+			if ((DVSTIME + DVSSETTIME) < millis())
+			{
+				radioread = "PB0";
+				radioread.concat(String(DVSNR));
+				radioread.concat(';');
+				Serial1.print(radioread);
+				delay(50);
+			}
+
+			DVSOLDPLAY = TRUE;
+			if ( DVSSETTIME < 40) {
+				DVSPLAY = FALSE;
+				DVSTIME = 0;
+				DVSOLDPLAY = FALSE;
+			}
+
+		} else {
+			DVSTIME = millis();
+		}
+	} else {
+		if (DVSOLDPLAY == TRUE)
+		{
+			DVSOLDPLAY = FALSE;
+			Serial1.print("PB00;");
+			DVSTIME = 0;
+		}
+	}
+
+
+
+
 
 
 
@@ -476,14 +578,25 @@ void loop() {
 					// 12345678901234567890
 			lcd.print("INFO                ");
 			lcd.setCursor(0,1);
-			if (DNR == 0) lcd.print("    "); else lcd.print("DNR ");
-			if (DNF == 0) lcd.print("    "); else lcd.print("DNF ");
-			lcd.print("            ");
+			//if (DNR == 0) lcd.print("    "); else lcd.print("DNR ");
+			//if (DNF == 0) lcd.print("    "); else lcd.print("DNF ");
+			lcd.print("                    ");
 			lcd.setCursor(0,2);
 			lcd.print("                    ");
 			lcd.setCursor(0,3);
-			lcd.print("                    ");
-
+			lcd.print("DVS NR ");
+			lcd.print(DVSNR);
+			if (DVSPLAY) {
+				if ((((DVSTIME + DVSSETTIME ) - millis()) + 120) > DVSSETTIME) {
+					lcd.print(" PLAY       ");
+				} else {
+					lcd.print(" DELAY      ");
+					lcd.setCursor(15,3);
+					lcd.print((DVSTIME + DVSSETTIME ) - millis());
+				}
+			} else {
+				lcd.print("            ");
+			}
 			break;
 
 		case STATE_ANALOG:
@@ -578,6 +691,38 @@ void loop() {
 						Serial1.print("EX1770;");
 					}
 					break;
+				case 4:
+					lcd.setCursor(0,2);
+					lcd.print("RECORD VOICE ");
+					lcd.print(DVSNR);
+					lcd.print("      ");
+					lcd.setCursor(0,3);
+					lcd.print("                    ");
+
+					if (keypress(KEY_ENTER)) {
+						main_time = millis()+25000;
+
+						radioread = "LM0";
+						radioread.concat(String(DVSNR));
+						radioread.concat(';');
+						Serial1.print(radioread);
+						lcd.setCursor(0,3);
+						lcd.print(radioread);
+						lcd.print("REC VOICE       ");
+						delay(50);
+					}
+
+					if (keypress(KEY_VALUE_UP)) {
+						main_time = millis();
+						DVSNR--;
+					}
+					if (keypress(KEY_VALUE_DOWN)) {
+						main_time = millis();
+						DVSNR++;
+					}
+					if (DVSNR < 1) DVSNR = 1;
+					if (DVSNR > 5) DVSNR = 5;
+					break;
 
 
 				default:
@@ -644,9 +789,9 @@ void loop() {
 
 	led_set(1,VOX);
 	led_set(2,PROC);
-//	led_set(3,key(1));
-//	led_set(4,key(4));
-//	led_set(5,key(5));
+//	led_set(3,key(3));
+	led_set(4,DNR);
+	led_set(5,DNF);
 //	led_set(6,key(6));
 
 
@@ -678,28 +823,5 @@ void loop() {
 
 
 
-
-
-//	led_set(1,keypress(1));
-//	led_set(2,keyrelease(1));
-//	led_set(3,key(1));
-//	led_set(4,key(4));
-//	led_set(5,key(5));
-//	led_set(6,key(6));
-//
-//
-//	lcd.setCursor(0,0);
-//	lcd.print(analog(0));
-//	lcd.print("        ");
-//	lcd.setCursor(0,1);
-//	lcd.print(analog(1));
-//	lcd.print("        ");
-//	lcd.setCursor(0,2);
-//	lcd.print(analog(2));
-//	lcd.print("        ");
-//	lcd.setCursor(0,3);
-//	lcd.print(1);
-//	lcd.print("        ");
-
-
+	keyloopreset();
 }
