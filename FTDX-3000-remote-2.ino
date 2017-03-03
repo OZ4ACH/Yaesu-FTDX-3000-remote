@@ -69,6 +69,7 @@ bool txreq;
 int32 LASTTUNEFRQ;
 bool TUNEFAIL;
 int32 TXFRQ;
+int TXVFO;
 int TXPOWER;
 int TUNEPOWER;
 
@@ -123,7 +124,6 @@ long DVSSETTIME_OLD;
 
 
 
-
 // TUNE
 void tune(bool testswr) {
 	uint32 starttime;
@@ -131,7 +131,7 @@ void tune(bool testswr) {
 	uint16 swr;
 	String radioread;
 
-	lcd.setCursor(0,2);
+	lcd.setCursor(0,1);
 	lcd.print("TUNE BEGIN          ");
 
 	digitalWrite(TXBYPASS, LOW);
@@ -144,7 +144,7 @@ void tune(bool testswr) {
 
 	if (testswr) {
 		// IS there need for tune
-		lcd.setCursor(0,2);
+		lcd.setCursor(0,1);
 		lcd.print("TUNE TEST SWR       ");
 
 		digitalWrite(RADIOTXREQ, LOW);
@@ -158,7 +158,7 @@ void tune(bool testswr) {
 		digitalWrite(RADIOTXREQ, HIGH);
 
 		if (swr < MAXSWRMETER) {
-			lcd.setCursor(0,2);
+			lcd.setCursor(0,1);
 			lcd.print("TUNE SWR OK         ");
 			lcd.setCursor(16,2);
 			lcd.print(swr);
@@ -173,7 +173,7 @@ void tune(bool testswr) {
 	// Start tune
     digitalWrite(TUNERSTART, LOW);
 
- 	lcd.setCursor(0,2);
+ 	lcd.setCursor(0,1);
 	lcd.print("TUNE START          ");
 
     delay(600);
@@ -194,7 +194,7 @@ void tune(bool testswr) {
 	if (digitalRead(TUNERKEY) == LOW){
 		digitalWrite(RADIOTXREQ, LOW);
 
-		lcd.setCursor(0,2);
+		lcd.setCursor(0,1);
 		lcd.print("TUNE RUNNING        ");
 
 		status = TUNE_TUNING;
@@ -205,7 +205,7 @@ void tune(bool testswr) {
 			if (digitalRead(TUNERKEY) == HIGH) {
 				status = TUNE_TUNED;
 			}
-			lcd.setCursor(0,1);
+			lcd.setCursor(0,2);
 			lcd.print((millis()-starttime));
 			lcd.print("            ");
 		}
@@ -218,7 +218,7 @@ void tune(bool testswr) {
 
 	// timerout wait for tuner to stop TX req then exit
 	if (status == TUNE_TIMEOUT) {
-		lcd.setCursor(0,2);
+		lcd.setCursor(0,1);
 		lcd.print("TUNE TIMEOUT        ");
 
 		status = TUNE_TUNING;
@@ -229,7 +229,7 @@ void tune(bool testswr) {
 			if (digitalRead(TUNERKEY) == HIGH) {
 				status = TUNE_TUNED;
 			}
-			lcd.setCursor(0,1);
+			lcd.setCursor(0,2);
 			lcd.print((millis()-starttime));
 			lcd.print("            ");
 		}
@@ -237,7 +237,7 @@ void tune(bool testswr) {
 	}
 
 	// Test SWR
-	lcd.setCursor(0,2);
+	lcd.setCursor(0,1);
 	lcd.print("TUNE TEST SWR       ");
 
 	digitalWrite(RADIOTXREQ, LOW);
@@ -252,14 +252,14 @@ void tune(bool testswr) {
 
 
 	if (swr >= MAXSWRMETER) {
-		lcd.setCursor(0,2);
+		lcd.setCursor(0,1);
 		lcd.print("TUNE SWR FAIL       ");
 		lcd.setCursor(16,2);
 		lcd.print(swr);
 		return;
 	}
 
-	lcd.setCursor(0,2);
+	lcd.setCursor(0,1);
 	lcd.print("TUNE SWR OK         ");
 	lcd.setCursor(16,2);
 	lcd.print(swr);
@@ -339,23 +339,36 @@ void readradio() {
 			}
 			break;
 		case 8:
-			Serial1.print("FA;");
+			Serial1.print("FT;");
+			radioread = Serial1.readStringUntil(';');
+			if (radioread.equals("FT0")) {
+				TXVFO = 0;
+				} else {
+				TXVFO = 1;
+			}
+			break;
+		case 9:
+			if (TXVFO == 0) {
+				Serial1.print("FA;");
+			} else {
+				Serial1.print("FB;");
+			}
 			radioread = Serial1.readStringUntil(';');
 			radioread = radioread.substring(2,11);
 			TXFRQ = radioread.toInt();
 			break;
-		case 9:
+		case 10:
 			Serial1.print("PC;");
 			radioread = Serial1.readStringUntil(';');
 			radioread = radioread.substring(2,6);
 			TXPOWER = radioread.toInt();
 			break;
-		case 10:
+		case 11:
 			Serial1.print("EX178;");
 			radioread = Serial1.readStringUntil(';');
 			radioread = radioread.substring(5,6);
 			TUNEPOWER = radioread.toInt();
-		case 11:
+		case 12:
 			Serial1.print("RI4;");
 			radioread = Serial1.readStringUntil(';');
 			if (radioread.equals("RI40")) {
@@ -437,8 +450,15 @@ void setup() {
 }
 
 
+uint32 looptime;
+uint32 lastlooptime;
+
 // Loop
 void loop() {
+	looptime = millis()- lastlooptime;
+	lastlooptime = millis();
+
+
 	String radioread;
 
 	readradio();
@@ -447,18 +467,23 @@ void loop() {
 	readanalog();
 	readkey();
 
+
 	// Global state change
 	if (keypress(KEY_VOX)) {
 		if (VOX == 0) {
+			VOX = 1;
 			Serial1.print("VX1;");
 		} else {
+			VOX = 0;
 			Serial1.print("VX0;");
 		}
 	} else
 	if (keypress(KEY_PROC)) {
 		if (PROC == 0) {
+			PROC = 1;
 			Serial1.print("PR01;");
 		} else {
+			PROC = 0;
 			Serial1.print("PR00;");
 		}
 	} else
@@ -471,15 +496,19 @@ void loop() {
 	} else
 	if (keypress(KEY_DNR2)) {
 		if (DNR == 0) {
+			DNR = 1;
 			Serial1.print("NR01;");
 		} else {
+			DNR = 0;
 			Serial1.print("NR00;");
 		}
 	} else
 	if (keypress(KEY_DNF2)) {
 		if (DNF == 0) {
+			DNF = 1;
 			Serial1.print("BC01;");
 		} else {
+			DNR = 0;
 			Serial1.print("BC00;");
 		}
 	} else
@@ -487,15 +516,19 @@ void loop() {
 	} else
 	if (keypress(KEY_DNR)) {
 		if (DNR == 0) {
+			DNR = 1;
 			Serial1.print("NR01;");
 		} else {
+			DNR = 0;
 			Serial1.print("NR00;");
 		}
 	} else
 	if (keypress(KEY_DNF)) {
 		if (DNF == 0) {
+			DNF = 1;
 			Serial1.print("BC01;");
 		} else {
+			DNR = 0;
 			Serial1.print("BC00;");
 		}
 	} else
@@ -506,17 +539,19 @@ void loop() {
 	} else
 
 	if (keypressed(KEY_FOODSWITCH) > 10) {
-		Serial1.print("MX1;");
+		Serial1.print("TX1;");
 		DVSPLAY = FALSE;
 	} else
 	if (keyrelease(KEY_FOODSWITCH)) {
 		if (keypressed_last(KEY_FOODSWITCH) < 250) {
 			DVSPLAY = TRUE;
 		}
+		Serial1.print("TX0;");
+		delay(20);
 	} else
 	if (	(keyreleased(KEY_FOODSWITCH) > 10)
 		&& 	(keyreleased(KEY_FOODSWITCH) < 300)) {
-		Serial1.print("MX0;");
+		Serial1.print("TX0;");
 	} else
 
 	if (main_state < STATE_LIMIT) {
@@ -678,22 +713,28 @@ void loop() {
 		radioread = Serial1.readStringUntil(';');
 		if (radioread.equals("RI40"))
 		{
-			DVSPLAYNOW = FALSE;
-			if ((DVSTIME + DVSSETTIME) < millis())
-			{
-				radioread = "PB0";
-				radioread.concat(String(DVSNR));
-				radioread.concat(';');
-				Serial1.print(radioread);
-				delay(50);
-				DVSPLAYNOW = TRUE;
-			}
+			Serial1.print("TX;");
+			radioread = Serial1.readStringUntil(';');
+			if (radioread.equals("TX0")) {
+				DVSPLAYNOW = FALSE;
+				if ((DVSTIME + DVSSETTIME) < millis())
+				{
+					radioread = "PB0";
+					radioread.concat(String(DVSNR));
+					radioread.concat(';');
+					Serial1.print(radioread);
+					delay(50);
+					DVSPLAYNOW = TRUE;
+				}
 
-			DVSOLDPLAY = TRUE;
-			if ( DVSSETTIME < 40) {
+				DVSOLDPLAY = TRUE;
+				if ( DVSSETTIME < 40) {
+					DVSPLAY = FALSE;
+					DVSTIME = 0;
+					DVSOLDPLAY = FALSE;
+				}
+			} else {
 				DVSPLAY = FALSE;
-				DVSTIME = 0;
-				DVSOLDPLAY = FALSE;
 			}
 
 		} else {
@@ -799,7 +840,11 @@ void loop() {
 		case STATE_INFO:
 			lcd.setCursor(0,0);
 					// 12345678901234567890
+//			lcd.print("INFO                ");
 			lcd.print("INFO                ");
+			lcd.setCursor(10,0);
+			lcd.print(looptime);
+
 			lcd.setCursor(0,1);
 			if (TXFRQ > 30000000) {
 				// PA not ok
@@ -834,6 +879,7 @@ void loop() {
 				// PA ok
 				lcd.print("PA OK               ");
 			}
+	lastlooptime = millis();
 
 			lcd.setCursor(0,2);
 			lcd.print("                    ");
@@ -954,15 +1000,19 @@ void loop() {
 
 			lcd.setCursor(0,0);
 					// 12345678901234567890
-			lcd.print("MENU                ");
-
-			lcd.setCursor(0,1);
+			lcd.print("MENU ");
+			if (menu_point < 100) lcd.print(" ");
+			if (menu_point < 10) lcd.print(" ");
 			lcd.print(menu_point);
-			lcd.print("                   ");
+		    // 12345678901234567890
+			lcd.print("            ");
+
 			switch (menu_point) {
 				case 1:
-					lcd.setCursor(0,2);
+					lcd.setCursor(0,1);
 					lcd.print("AUTOTUNE            ");
+					lcd.setCursor(0,2);
+					lcd.print("                    ");
 					lcd.setCursor(0,3);
 					lcd.print("Tune the band       ");
 					if (keypress(KEY_ENTER)) {
@@ -971,8 +1021,10 @@ void loop() {
 					}
 					break;
 				case 2:
-					lcd.setCursor(0,2);
+					lcd.setCursor(0,1);
 					lcd.print("RF/SQL              ");
+					lcd.setCursor(0,2);
+					lcd.print("                    ");
 					lcd.setCursor(0,3);
 
 					if (RFSQL == 0) {
@@ -992,8 +1044,10 @@ void loop() {
 					}
 					break;
 				case 3:
-					lcd.setCursor(0,2);
+					lcd.setCursor(0,1);
 					lcd.print("PWR/PROC            ");
+					lcd.setCursor(0,2);
+					lcd.print("                    ");
 					lcd.setCursor(0,3);
 
 					if (PWRPROC == 0) {
@@ -1013,10 +1067,12 @@ void loop() {
 					}
 					break;
 				case 4:
-					lcd.setCursor(0,2);
+					lcd.setCursor(0,1);
 					lcd.print("RECORD VOICE ");
 					lcd.print(DVSNR);
 					lcd.print("      ");
+					lcd.setCursor(0,2);
+					lcd.print("                    ");
 					lcd.setCursor(0,3);
 					lcd.print("                    ");
 
@@ -1046,8 +1102,10 @@ void loop() {
 
 
 				default:
-					lcd.setCursor(0,2);
+					lcd.setCursor(0,1);
 					lcd.print("Default menu        ");
+					lcd.setCursor(0,2);
+					lcd.print("                    ");
 					lcd.setCursor(0,3);
 					lcd.print("No menu point!      ");
 			}
