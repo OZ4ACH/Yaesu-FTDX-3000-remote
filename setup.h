@@ -55,7 +55,7 @@ const word LED_ADR[] = {28,29,30,31,32,33};
 
 #define KEY_FOODSWITCH 16
 
-#define MENU_COUNT 10
+#define MENU_COUNT 4
 
 
 

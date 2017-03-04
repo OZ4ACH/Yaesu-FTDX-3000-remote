@@ -117,7 +117,7 @@ long DVSSETTIME_1;
 long DVSSETTIME_2;
 long DVSSETTIME_OLD;
 
-
+bool looppuls;
 
 
 
@@ -431,6 +431,14 @@ void readradio() {
 // Setup
 void setup() {
 
+    pinMode(52, OUTPUT);
+    digitalWrite(52, HIGH);
+	looppuls = LOW;
+
+    pinMode(53, OUTPUT);
+    digitalWrite(53, HIGH);
+
+
     pinMode(RADIOTXREQ, OUTPUT);
     pinMode(TUNERKEY, INPUT_PULLUP);
     pinMode(TUNERSTART, OUTPUT);
@@ -465,10 +473,10 @@ void setup() {
 	Serial3.begin(38400);
 
 	// Set time out
-	Serial.setTimeout(100);
-	Serial1.setTimeout(100);
-	Serial2.setTimeout(100);
-	Serial3.setTimeout(100);
+	Serial.setTimeout(10);
+	Serial1.setTimeout(10);
+	Serial2.setTimeout(10);
+	Serial3.setTimeout(10);
 
 	txreq = FALSE;
 
@@ -491,6 +499,10 @@ void setup() {
 
 // Loop
 void loop() {
+    digitalWrite(52, looppuls);
+	looppuls = !looppuls;
+
+
 	lcdstring_clear();
 
 	String radioread;
@@ -875,40 +887,60 @@ void loop() {
 
 		case STATE_INFO:
 			lcd_str(0,"INFO ");
+
 			if (TXFRQ > 30000000) {
 				// PA not ok
-				lcd_str(1,"PA OFF on 6m");
+				lcd_str(0,"PA OFF on 6m");
 			} else if (TXPOWER > MAXTXPOWER) {
 				// PA not ok
-				lcd_str(1,"PA off TXPW ");
-				lcd_uint32(1,3, TXPOWER);
-				lcd_str(1,"W");
+				lcd_str(0,"PA off TXPW");
+				lcd_uint32(0,3, TXPOWER);
+				lcd_str(0,"W");
 			} else if (TUNEPOWER > MAXTUNEPOWER) {
 				// PA not ok
-				lcd_str(1,"PA off TUPW ");
+				lcd_str(0,"PA off TUPW");
 				switch (TUNEPOWER) {
-					case 0: lcd_str(1," 10W"); break;
-					case 1: lcd_str(1," 20W"); break;
-					case 2: lcd_str(1," 50W"); break;
-					case 3: lcd_str(1,"100W"); break;
+					case 0: lcd_str(0," 10W"); break;
+					case 1: lcd_str(0," 20W"); break;
+					case 2: lcd_str(0," 50W"); break;
+					case 3: lcd_str(0,"100W"); break;
 					default:
-						lcd_str(1,"???W");
+						lcd_str(0,"???W");
 				}
 			} else if ((SWITCHANT == TRUE)) {
 				// PA not ok
-				lcd_str(1,"SWITCH ANTNNE");
+				lcd_str(0,"SWITCH ANTNNE");
 			} else if ((NEEDTUNE == TRUE)) {
 				// PA not ok
-				lcd_str(1,"NEED TUNE");
+				lcd_str(0,"NEED TUNE");
 			} else if ((TUNEFAIL == TRUE)) {
 				// PA not ok
-				lcd_str(1,"TUNE FAIL");
+				lcd_str(0,"TUNE FAIL");
 			} else {
 				// PA ok
-				lcd_str(1,"PA OK");
+				lcd_str(0,"PA OK");
 			}
 
-			//lcd.setCursor(0,3);
+			if (VOX == 1)  lcd_str(1,"VOX");  else lcd_str(1,"   ");
+			lcd_str(1,"-");
+			if (PROC == 1) lcd_str(1,"PROC"); else lcd_str(1,"    ");
+			lcd_str(1,"-");
+			if (DNR == 1)  lcd_str(1,"DNR");  else lcd_str(1,"   ");
+			lcd_str(1,"-");
+			if (DNF == 1)  lcd_str(1,"DNF");  else lcd_str(1,"   ");
+			lcd_str(1,"-");
+			if (MICEQ == 1)  lcd_str(1,"EQ");  else lcd_str(1,"  ");
+
+			if (PWRPROC == 1)  lcd_str(2,"PROC  ");  else lcd_str(2,"TX PWR");
+			lcd_str(2,"-");
+			if (RFSQL == 0)  lcd_str(2,"RF ");  else lcd_str(2,"SQL");
+			lcd_str(2,"-");
+			lcd_uint32(2,3,TXPOWER);
+			lcd_str(2,"W");
+			lcd_str(2,"-");
+			lcd_uint32(2,3,BAND);
+			lcd_str(2,"M");
+
 			lcd_str(3,"DVS NR ");
 			lcd_uint32(3,1,DVSNR);
 			if ((DVSPLAY) || (DVSPLAYNOW == TRUE)) {
@@ -1008,12 +1040,14 @@ void loop() {
 					break;
 				case 2:
 					lcd_str(1,"RF/SQL");
+					lcd_str(2,"SQL");
+					lcd_str(3,"RF ");
 
 					if (RFSQL == 0) {
 							    // 12345678901234567890
-						lcd_str(3,"RF");
+						lcd_str(3," <--");
 					} else {
-						lcd_str(3,"SQL");
+						lcd_str(2," <--");
 					}
 
 					if (keypress(KEY_VALUE_UP)) {
@@ -1029,11 +1063,13 @@ void loop() {
 					break;
 				case 3:
 					lcd_str(1,"PWR/PROC");
+					lcd_str(2,"PROC  ");
+					lcd_str(3,"TX PWR");
 
 					if (PWRPROC == 0) {
-						lcd_str(3,"TX PWR              ");
+						lcd_str(3," <--");
 					} else {
-						lcd_str(3,"PROC                ");
+						lcd_str(2," <--");
 					}
 
 					if (keypress(KEY_VALUE_UP)) {
@@ -1123,27 +1159,39 @@ void loop() {
 
 	// Send data to and from radio and PC
 	if (Serial.available() >= 3) {
-		radioread = Serial.readStringUntil(CR);
+    digitalWrite(53, LOW);
+		radioread = Serial.readStringUntil(';');
 		// Filter MD = mode from the PC command
 		if (!radioread.substring(0,2).equals("MD")) {
+			radioread.concat(';');
 			Serial1.print(radioread);
-			radioread = Serial1.readStringUntil(CR);
+			radioread = Serial1.readStringUntil(';');
+			radioread.concat(';');
 			Serial.print(radioread);
 		}
+    digitalWrite(53, HIGH);
 	}
 
 	if (Serial2.available() >= 3) {
-		radioread = Serial2.readStringUntil(CR);
+    digitalWrite(53, LOW);
+		radioread = Serial2.readStringUntil(';');
+		radioread.concat(';');
 		Serial1.print(radioread);
-		radioread = Serial1.readStringUntil(CR);
+		radioread = Serial1.readStringUntil(';');
+		radioread.concat(';');
 		Serial2.print(radioread);
+    digitalWrite(53, HIGH);
 	}
 
 	if (Serial3.available() >= 3) {
-		radioread = Serial3.readStringUntil(CR);
+    digitalWrite(53, LOW);
+		radioread = Serial3.readStringUntil(';');
+		radioread.concat(';');
 		Serial1.print(radioread);
-		radioread = Serial1.readStringUntil(CR);
+		radioread = Serial1.readStringUntil(';');
+		radioread.concat(';');
 		Serial3.print(radioread);
+    digitalWrite(53, HIGH);
 	}
 
 	while (Serial1.available() > 0) {
